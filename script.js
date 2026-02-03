@@ -1,159 +1,158 @@
+/* Minimal, self-contained todo app with localStorage persistence */
+
+const STORAGE_KEY = 'todo_tasks_v1';
+
 const taskInput = document.getElementById('taskInput');
 const addBtn = document.getElementById('addBtn');
 const taskList = document.getElementById('taskList');
+
 const editModal = document.getElementById('editModal');
 const editInput = document.getElementById('editInput');
-const editSaveBtn = document.getElementById('editSaveBtn');
-const editCancelBtn = document.getElementById('editCancelBtn');
-const deleteModal = document.getElementById('deleteModal');
-const deleteConfirmBtn = document.getElementById('deleteConfirmBtn');
-const deleteCancelBtn = document.getElementById('deleteCancelBtn');
+const saveEdit = document.getElementById('saveEdit');
+const cancelEdit = document.getElementById('cancelEdit');
 
-let tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+const confirmModal = document.getElementById('confirmModal');
+const confirmDelete = document.getElementById('confirmDelete');
+const cancelDelete = document.getElementById('cancelDelete');
+const confirmMessage = document.getElementById('confirmMessage');
+
+let tasks = [];
 let currentEditId = null;
 let currentDeleteId = null;
 
-const formatDate = (date) => {
-    return new Date(date).toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-};
+/* Helpers */
+function saveTasks() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+function loadTasks() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+function formatDate(d) {
+  return new Date(d).toLocaleString();
+}
+function escapeHtml(str = '') {
+  return String(str).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+}
 
-const saveTasks = () => {
-    localStorage.setItem('tasks', JSON.stringify(tasks));
-};
+/* Render */
+function render() {
+  taskList.innerHTML = '';
+  tasks.forEach(task => {
+    const li = document.createElement('li');
+    li.className = 'task-item' + (task.done ? ' done' : '');
+    li.dataset.id = task.id;
 
-const renderTasks = () => {
-    taskList.innerHTML = '';
-    tasks.forEach(task => {
-        const li = document.createElement('li');
-        li.className = `task-item ${task.done ? 'done' : ''}`;
-        li.innerHTML = `
-            <div class="task-name">${escapeHtml(task.name)}</div>
-            <div class="task-meta">
-                <span class="meta-item">Added: ${formatDate(task.createdAt)}</span>
-                ${task.updatedAt ? `<span class="meta-item">Edited: ${formatDate(task.updatedAt)}</span>` : ''}
-            </div>
-            <div class="task-buttons">
-                <button class="task-buttons-item btn-done ${task.done ? 'undone' : ''}" onclick="toggleDone('${task.id}')">
-                    ${task.done ? 'Mark as undone' : 'Mark as done'}
-                </button>
-                <button class="task-buttons-item btn-edit" onclick="openEditModal('${task.id}')">Edit</button>
-                <button class="task-buttons-item btn-delete" onclick="openDeleteModal('${task.id}')">Delete</button>
-            </div>
-        `;
-        taskList.appendChild(li);
-    });
-};
+    li.innerHTML = `
+      <div class="task-main">
+        <p class="task-name">${escapeHtml(task.name)}</p>
+        <p class="task-meta">Created: ${formatDate(task.createdAt)}${task.updatedAt ? ' • Edited: ' + formatDate(task.updatedAt) : ''}</p>
+      </div>
+      <div class="task-actions">
+        <button class="done-btn">${task.done ? 'Mark as undone' : 'Mark as done'}</button>
+        <button class="edit-btn">Edit</button>
+        <button class="delete-btn danger">Delete</button>
+      </div>
+    `;
+    taskList.appendChild(li);
+  });
+}
 
-const escapeHtml = (text) => {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-};
+/* Init from storage */
+tasks = loadTasks();
 
-const addTask = () => {
-    const taskName = taskInput.value.trim();
-    if (!taskName) return;
+/* Normalize dates if they are not ISO strings (skip if already string) */
+tasks = tasks.map(t => ({
+  id: t.id,
+  name: t.name,
+  createdAt: t.createdAt || new Date().toISOString(),
+  updatedAt: t.updatedAt || null,
+  done: !!t.done
+}));
 
-    const newTask = {
-        id: Date.now().toString(),
-        name: taskName,
-        done: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: null
-    };
+render();
 
-    tasks.push(newTask);
+/* Events: Add */
+addBtn.addEventListener('click', () => {
+  const val = taskInput.value.trim();
+  if (!val) return;
+  const now = new Date().toISOString();
+  const task = { id: Date.now().toString(), name: val, createdAt: now, updatedAt: null, done: false };
+  tasks.unshift(task);
+  taskInput.value = '';
+  addBtn.disabled = true;
+  saveTasks();
+  render();
+});
+taskInput.addEventListener('input', () => addBtn.disabled = taskInput.value.trim() === '');
+taskInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !addBtn.disabled) addBtn.click();
+});
+
+/* Event delegation for task actions */
+taskList.addEventListener('click', (e) => {
+  const li = e.target.closest('li.task-item');
+  if (!li) return;
+  const id = li.dataset.id;
+  const task = tasks.find(t => t.id === id);
+  if (!task) return;
+
+  if (e.target.classList.contains('done-btn')) {
+    task.done = !task.done;
     saveTasks();
-    renderTasks();
-    taskInput.value = '';
-    taskInput.focus();
-};
-
-const toggleDone = (id) => {
-    const task = tasks.find(t => t.id === id);
-    if (task) {
-        task.done = !task.done;
-        saveTasks();
-        renderTasks();
-    }
-};
-
-const openEditModal = (id) => {
+    render();
+  } else if (e.target.classList.contains('edit-btn')) {
     currentEditId = id;
-    const task = tasks.find(t => t.id === id);
-    if (task) {
-        editInput.value = task.name;
-        editModal.classList.remove('hidden');
-        editInput.focus();
-        editInput.select();
-    }
-};
-
-const closeEditModal = () => {
-    editModal.classList.add('hidden');
-    currentEditId = null;
-    editInput.value = '';
-};
-
-const saveEdit = () => {
-    const newName = editInput.value.trim();
-    if (!newName || !currentEditId) return;
-
-    const task = tasks.find(t => t.id === currentEditId);
-    if (task) {
-        task.name = newName;
-        task.updatedAt = new Date().toISOString();
-        saveTasks();
-        renderTasks();
-        closeEditModal();
-    }
-};
-
-const openDeleteModal = (id) => {
+    editInput.value = task.name;
+    openModal(editModal);
+    editInput.focus();
+  } else if (e.target.classList.contains('delete-btn')) {
     currentDeleteId = id;
-    deleteModal.classList.remove('hidden');
-};
+    confirmMessage.textContent = `Are you sure you want to delete "${task.name}"?`;
+    openModal(confirmModal);
+  }
+});
 
-const closeDeleteModal = () => {
-    deleteModal.classList.add('hidden');
-    currentDeleteId = null;
-};
-
-const confirmDelete = () => {
-    if (!currentDeleteId) return;
-
-    tasks = tasks.filter(t => t.id !== currentDeleteId);
+/* Edit modal handlers */
+saveEdit.addEventListener('click', () => {
+  const newVal = editInput.value.trim();
+  if (!newVal) return;
+  const task = tasks.find(t => t.id === currentEditId);
+  if (task) {
+    task.name = newVal;
+    task.updatedAt = new Date().toISOString();
     saveTasks();
-    renderTasks();
-    closeDeleteModal();
-};
+  }
+  closeModal(editModal);
+  render();
+});
+cancelEdit.addEventListener('click', () => closeModal(editModal));
 
-addBtn.addEventListener('click', addTask);
-taskInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') addTask();
+/* Delete confirm handlers */
+confirmDelete.addEventListener('click', () => {
+  tasks = tasks.filter(t => t.id !== currentDeleteId);
+  currentDeleteId = null;
+  saveTasks();
+  closeModal(confirmModal);
+  render();
+});
+cancelDelete.addEventListener('click', () => {
+  currentDeleteId = null;
+  closeModal(confirmModal);
 });
 
-editSaveBtn.addEventListener('click', saveEdit);
-editInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') saveEdit();
-});
-editCancelBtn.addEventListener('click', closeEditModal);
+/* Modal helpers */
+function openModal(modal) { modal.classList.remove('hidden'); }
+function closeModal(modal) { modal.classList.add('hidden'); }
 
-deleteConfirmBtn.addEventListener('click', confirmDelete);
-deleteCancelBtn.addEventListener('click', closeDeleteModal);
-
-// Close modals when clicking outside
-editModal.addEventListener('click', (e) => {
-    if (e.target === editModal) closeEditModal();
+/* Close modal on overlay click */
+document.querySelectorAll('.modal').forEach(m => {
+  m.addEventListener('click', (e) => {
+    if (e.target === m) closeModal(m);
+  });
 });
-deleteModal.addEventListener('click', (e) => {
-    if (e.target === deleteModal) closeDeleteModal();
-});
-
-renderTasks();
